@@ -8,6 +8,7 @@ Supported Providers:
   - Google Gemini 2.5 Flash (FREE - 1M token context)
   - Groq Llama 3.3 70B (FREE - 128K token context)
   - Z.AI GLM-4.6 (Paid - Coding Plan)
+  - OpenRouter (Amazon Nova 2 Lite) (FREE - 32K token context)
 
 Usage:
     python app.py                           # Interactive mode
@@ -32,6 +33,9 @@ from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFoun
 # Load environment variables
 load_dotenv(override=True)
 
+# Import provider configurations from external file
+from providers import PROVIDERS
+
 # ============================================================
 # CONFIGURATION
 # ============================================================
@@ -40,35 +44,6 @@ OUTPUT_FOLDER = "YouTubeNotes"
 SYSTEM_PROMPT_FILE = "gpt-inst.md"
 REQUEST_TIMEOUT = 300  # 5 minutes
 MAX_OUTPUT_TOKENS = 8192
-
-# Provider configurations
-PROVIDERS = {
-    "gemini": {
-        "name": "Google Gemini 2.5 Flash",
-        "model": "gemini-2.5-flash",
-        "env_key": "GEMINI_API_KEY",
-        "context": "1M tokens",
-        "context_tokens": 1_000_000,
-        "free": True,
-    },
-    "groq": {
-        "name": "Groq (Llama 3.3 70B)",
-        "model": "llama-3.3-70b-versatile",
-        "env_key": "GROQ_API_KEY",
-        "context": "128K tokens",
-        "context_tokens": 128_000,
-        "rate_limit_tpm": 12_000,  # Free tier TPM limit
-        "free": True,
-    },
-    "zai": {
-        "name": "Z.AI GLM-4.6",
-        "model": "glm-4.6",
-        "env_key": "ZAI_API_KEY",
-        "context": "32K tokens",
-        "context_tokens": 32_000,
-        "free": False,
-    },
-}
 
 
 def estimate_tokens(word_count: int) -> int:
@@ -214,10 +189,48 @@ def select_provider_with_stats(word_count: int) -> str:
 # LLM PROVIDERS
 # ============================================================
 
-def call_gemini(system_prompt: str, user_message: str) -> str:
+def call_openai_compatible(system_prompt: str, user_message: str, config: dict) -> str:
+    """
+    Generic handler for all OpenAI-compatible APIs.
+    Works with: Groq, OpenRouter, Together, DeepSeek, Fireworks, etc.
+    """
+    api_key = os.getenv(config["env_key"])
+
+    response = requests.post(
+        config["api_url"],
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": config["model"],
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            "temperature": 0.7,
+            "max_tokens": MAX_OUTPUT_TOKENS,
+        },
+        timeout=REQUEST_TIMEOUT,
+    )
+
+    if response.status_code != 200:
+        raise Exception(f"{config['name']} API Error {response.status_code}: {parse_api_error(response, config['name'])}")
+
+    result = response.json()
+    if "choices" not in result or not result["choices"]:
+        raise Exception(f"Unexpected {config['name']} response: {result}")
+
+    if result["choices"][0].get("finish_reason") == "length":
+        print("⚠️  Warning: Response was truncated.")
+
+    return result["choices"][0]["message"]["content"]
+
+
+def call_gemini(system_prompt: str, user_message: str, config: dict) -> str:
     """Call Google Gemini API."""
-    api_key = os.getenv("GEMINI_API_KEY")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    api_key = os.getenv(config["env_key"])
+    url = config["api_url"].format(model=config["model"], api_key=api_key)
 
     response = requests.post(
         url,
@@ -239,51 +252,19 @@ def call_gemini(system_prompt: str, user_message: str) -> str:
     return result["candidates"][0]["content"]["parts"][0]["text"]
 
 
-def call_groq(system_prompt: str, user_message: str) -> str:
-    """Call Groq API."""
-    api_key = os.getenv("GROQ_API_KEY")
-
-    response = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={
-            "model": "llama-3.3-70b-versatile",
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
-            ],
-            "temperature": 0.7,
-            "max_tokens": MAX_OUTPUT_TOKENS,
-        },
-        timeout=REQUEST_TIMEOUT,
-    )
-
-    if response.status_code != 200:
-        raise Exception(f"Groq API Error {response.status_code}: {parse_api_error(response, 'groq')}")
-
-    result = response.json()
-    if "choices" not in result or not result["choices"]:
-        raise Exception(f"Unexpected Groq response: {result}")
-
-    if result["choices"][0].get("finish_reason") == "length":
-        print("⚠️  Warning: Response was truncated.")
-
-    return result["choices"][0]["message"]["content"]
-
-
-def call_zai(system_prompt: str, user_message: str) -> str:
+def call_zai(system_prompt: str, user_message: str, config: dict) -> str:
     """Call Z.AI GLM-4.6 API with streaming."""
-    api_key = os.getenv("ZAI_API_KEY")
+    api_key = os.getenv(config["env_key"])
 
     response = requests.post(
-        "https://api.z.ai/api/coding/paas/v4/chat/completions",
+        config["api_url"],
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
             "Accept-Language": "en-US,en",
         },
         json={
-            "model": "glm-4.6",
+            "model": config["model"],
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_message},
@@ -317,12 +298,17 @@ def call_zai(system_prompt: str, user_message: str) -> str:
     return "".join(full_content)
 
 
-# Provider dispatch table
-PROVIDER_FUNCTIONS: Dict[str, Callable[[str, str], str]] = {
-    "gemini": call_gemini,
-    "groq": call_groq,
-    "zai": call_zai,
-}
+def get_provider_function(provider: str) -> Callable[[str, str], str]:
+    """Get the appropriate function for a provider based on its api_type."""
+    config = PROVIDERS[provider]
+    api_type = config.get("api_type", "openai")
+
+    if api_type == "gemini":
+        return lambda system, user: call_gemini(system, user, config)
+    elif api_type == "zai":
+        return lambda system, user: call_zai(system, user, config)
+    else:  # Default to OpenAI-compatible
+        return lambda system, user: call_openai_compatible(system, user, config)
 
 
 def generate_notes(provider: str, system_prompt: str, transcript: str, video_title: str, video_id: str, chapters: list = None) -> str:
@@ -347,13 +333,16 @@ def generate_notes(provider: str, system_prompt: str, transcript: str, video_tit
     config = PROVIDERS[provider]
     print(f"🤖 Generating notes with {config['name']}...")
 
-    if provider == "zai":
+    # Get the appropriate function based on api_type
+    provider_fn = get_provider_function(provider)
+
+    if config.get("api_type") == "zai":
         # Z.AI streams output directly, no spinner needed
         print()  # Blank line before streamed output
-        return PROVIDER_FUNCTIONS[provider](system_prompt, user_message)
+        return provider_fn(system_prompt, user_message)
     else:
         with ProgressIndicator("Generating notes (this may take 1-3 minutes)..."):
-            return PROVIDER_FUNCTIONS[provider](system_prompt, user_message)
+            return provider_fn(system_prompt, user_message)
 
 
 # ============================================================
@@ -553,15 +542,17 @@ def save_notes(
     output_dir = os.path.join(get_script_dir(), OUTPUT_FOLDER)
     os.makedirs(output_dir, exist_ok=True)
 
-    model_name = PROVIDERS[provider]["model"]
+    # Use nickname for shorter filenames
+    nickname = PROVIDERS[provider]["nickname"]
 
-    # Check for existing note with same video ID and model
-    existing = find_existing_note(video_id, model_name)
+    # Check for existing note with same video ID and provider
+    existing = find_existing_note(video_id, nickname)
     if existing:
         filepath = existing
         print(f"   Overwriting: {os.path.basename(filepath)}")
     else:
-        filename = f"{video_id}_{sanitize_filename(video_title)}_{model_name}.md"
+        # Use shorter title (40 chars) for compact filenames
+        filename = f"{video_id}_{sanitize_filename(video_title, max_length=40)}_{nickname}.md"
         filepath = os.path.join(output_dir, filename)
 
     # Calculate read time based on notes word count
