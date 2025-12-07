@@ -222,7 +222,10 @@ def select_provider_with_stats(word_count: int) -> str:
 # ============================================================
 
 def get_available_prompts() -> List[str]:
-    """Scan prompts folder and return list of available prompt names."""
+    """Scan prompts folder and return list of available prompt names.
+    
+    Returns prompts with DEFAULT_PROMPT first, then rest sorted alphabetically.
+    """
     prompts_dir = os.path.join(get_script_dir(), PROMPTS_FOLDER)
     if not os.path.exists(prompts_dir):
         return []
@@ -231,19 +234,13 @@ def get_available_prompts() -> List[str]:
     for f in sorted(os.listdir(prompts_dir)):
         if f.endswith(".md"):
             prompts.append(f[:-3])  # Remove .md extension
+    
+    # Put default prompt first, then rest alphabetically
+    if DEFAULT_PROMPT in prompts:
+        prompts.remove(DEFAULT_PROMPT)
+        prompts = [DEFAULT_PROMPT] + prompts
+    
     return prompts
-
-
-def get_prompt_description(prompt_name: str) -> str:
-    """Get first line of prompt file as description."""
-    path = os.path.join(get_script_dir(), PROMPTS_FOLDER, f"{prompt_name}.md")
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            first_line = f.readline().strip()
-            # Remove markdown heading markers
-            return first_line.lstrip("#").strip()[:60]
-    except Exception:
-        return "Custom prompt template"
 
 
 def select_prompt() -> str:
@@ -264,14 +261,12 @@ def select_prompt() -> str:
     for idx, prompt in enumerate(prompts, 1):
         is_default = prompt == DEFAULT_PROMPT
         default_tag = " [DEFAULT]" if is_default else ""
-        description = get_prompt_description(prompt)
         print(f"\n  {idx}. {prompt}{default_tag}")
-        print(f"     {description}")
     
     print("\n" + "-" * 60)
     
-    # Find default index
-    default_idx = prompts.index(DEFAULT_PROMPT) + 1 if DEFAULT_PROMPT in prompts else 1
+    # Default is always first (index 1)
+    default_idx = 1
     
     while True:
         try:
