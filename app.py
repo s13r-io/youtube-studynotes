@@ -30,6 +30,7 @@ from urllib.parse import urlparse, parse_qs
 
 import requests
 from dotenv import load_dotenv
+from notion_client import Client as NotionClient
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound
 
@@ -867,6 +868,357 @@ def save_notes(
 
 
 # ============================================================
+# NOTION INTEGRATION
+# ============================================================
+
+def markdown_to_notion_blocks(markdown: str) -> list:
+    """
+    Convert markdown text to Notion block format.
+    
+    Handles:
+    - Headings (# ## ###)
+    - Bullet points (- )
+    - Numbered lists (1. 2. etc)
+    - Bold text (**text**)
+    - Regular paragraphs
+    
+    Note: Notion API limits to 100 blocks per request.
+    Note: Notion has a 2000 character limit per text block.
+    """
+    NOTION_TEXT_LIMIT = 2000
+    blocks = []
+    lines = markdown.split('\n')
+    
+    def split_long_text(text: str, limit: int = NOTION_TEXT_LIMIT) -> list:
+        """Split text into chunks that fit within Notion's character limit."""
+        if len(text) <= limit:
+            return [text]
+        
+        chunks = []
+        while text:
+            if len(text) <= limit:
+                chunks.append(text)
+                break
+            
+            # Find a good break point (space, period, comma) near the limit
+            break_point = limit
+            for sep in ['. ', ', ', ' ', '.', ',']:
+                idx = text.rfind(sep, 0, limit)
+                if idx > limit // 2:  # Don't break too early
+                    break_point = idx + len(sep)
+                    break
+            
+            chunks.append(text[:break_point].strip())
+            text = text[break_point:].strip()
+        
+        return chunks
+    
+    def parse_rich_text(text: str) -> list:
+        """Parse inline formatting: bold (**text**) and links ([text](url))."""
+        rich_text = []
+        
+        # Helper to parse links within a text segment
+        def parse_links(segment: str, is_bold: bool = False) -> list:
+            """Parse markdown links in a text segment, including double-bracket format [[text]](url)."""
+            result = []
+            # Pattern handles both [text](url) and [[text]](url) formats
+            link_pattern = r'\[+([^\]]+)\]+\(([^)]+)\)'
+            link_last_end = 0
+            
+            for link_match in re.finditer(link_pattern, segment):
+                # Add text before the link
+                if link_match.start() > link_last_end:
+                    plain = segment[link_last_end:link_match.start()]
+                    if plain:
+                        item = {"type": "text", "text": {"content": plain}}
+                        if is_bold:
+                            item["annotations"] = {"bold": True}
+                        result.append(item)
+                
+                # Add the link
+                link_text = link_match.group(1)
+                link_url = link_match.group(2)
+                item = {"type": "text", "text": {"content": link_text, "link": {"url": link_url}}}
+                if is_bold:
+                    item["annotations"] = {"bold": True}
+                result.append(item)
+                link_last_end = link_match.end()
+            
+            # Add remaining text after last link
+            if link_last_end < len(segment):
+                remaining = segment[link_last_end:]
+                if remaining:
+                    item = {"type": "text", "text": {"content": remaining}}
+                    if is_bold:
+                        item["annotations"] = {"bold": True}
+                    result.append(item)
+            
+            # If no links found, return the whole segment
+            if not result:
+                item = {"type": "text", "text": {"content": segment}}
+                if is_bold:
+                    item["annotations"] = {"bold": True}
+                result.append(item)
+            
+            return result
+        
+        # First pass: find bold sections
+        bold_pattern = r'\*\*(.+?)\*\*'
+        last_end = 0
+        
+        for match in re.finditer(bold_pattern, text):
+            # Add text before the bold (may contain links)
+            if match.start() > last_end:
+                plain = text[last_end:match.start()]
+                if plain:
+                    rich_text.extend(parse_links(plain, is_bold=False))
+            
+            # Add bold text (may contain links)
+            bold_content = match.group(1)
+            rich_text.extend(parse_links(bold_content, is_bold=True))
+            last_end = match.end()
+        
+        # Add remaining text after last bold (may contain links)
+        if last_end < len(text):
+            remaining = text[last_end:]
+            if remaining:
+                rich_text.extend(parse_links(remaining, is_bold=False))
+        
+        # If nothing was parsed, return plain text
+        if not rich_text:
+            rich_text = [{"type": "text", "text": {"content": text}}]
+        
+        return rich_text
+    
+    def add_block(block_type: str, content: str, key: str):
+        """Add block(s), splitting if content exceeds Notion's limit."""
+        chunks = split_long_text(content)
+        for chunk in chunks:
+            blocks.append({
+                "object": "block",
+                "type": block_type,
+                key: {"rich_text": parse_rich_text(chunk)}
+            })
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Skip empty lines
+        if not stripped:
+            continue
+        
+        # Heading 1
+        if stripped.startswith('# '):
+            # Truncate headings if too long (shouldn't happen often)
+            heading_text = stripped[2:][:NOTION_TEXT_LIMIT]
+            blocks.append({
+                "object": "block",
+                "type": "heading_1",
+                "heading_1": {"rich_text": parse_rich_text(heading_text)}
+            })
+        # Heading 2
+        elif stripped.startswith('## '):
+            heading_text = stripped[3:][:NOTION_TEXT_LIMIT]
+            blocks.append({
+                "object": "block",
+                "type": "heading_2",
+                "heading_2": {"rich_text": parse_rich_text(heading_text)}
+            })
+        # Heading 3
+        elif stripped.startswith('### '):
+            heading_text = stripped[4:][:NOTION_TEXT_LIMIT]
+            blocks.append({
+                "object": "block",
+                "type": "heading_3",
+                "heading_3": {"rich_text": parse_rich_text(heading_text)}
+            })
+        # Bullet point - split if too long
+        elif stripped.startswith('- ') or stripped.startswith('* '):
+            add_block("bulleted_list_item", stripped[2:], "bulleted_list_item")
+        # Numbered list (matches "1. ", "2. ", etc.) - split if too long
+        elif re.match(r'^\d+\.\s', stripped):
+            content = re.sub(r'^\d+\.\s', '', stripped)
+            add_block("numbered_list_item", content, "numbered_list_item")
+        # Regular paragraph - split if too long
+        else:
+            add_block("paragraph", stripped, "paragraph")
+    
+    return blocks
+
+
+def extract_title_from_notes(notes: str) -> str:
+    """Extract the title from notes (first ### heading before Summary)."""
+    lines = notes.split('\n')
+    for line in lines:
+        stripped = line.strip()
+        # Look for ### heading that's not "Summary" or numbered sections
+        if stripped.startswith('### ') and not stripped.startswith('### Summary') and not re.match(r'### \d+\.', stripped):
+            return stripped[4:].strip()
+    return ""
+
+
+def extract_tags_from_notes(notes: str) -> list:
+    """Extract AI-generated tags from the **Tags:** line in notes."""
+    # Look for the Tags line: **Tags:** Tag1, Tag2, ...
+    match = re.search(r'\*\*Tags:\*\*\s*(.+?)(?:\n|$)', notes)
+    if match:
+        tags_line = match.group(1)
+        # Split by comma and clean each tag
+        tags = [tag.strip() for tag in tags_line.split(',')]
+        # Remove any empty tags and limit length
+        tags = [tag for tag in tags if tag and len(tag) > 1]
+        return tags[:10]
+    return []
+
+
+def generate_tags_from_content(notes: str, video_title: str, channel: str, prompt_name: str) -> list:
+    """
+    Get tags for the content. First tries to extract AI-generated tags,
+    then falls back to auto-generation from metadata.
+    """
+    # First, try to extract AI-generated tags from notes
+    tags = extract_tags_from_notes(notes)
+    if tags:
+        return tags
+    
+    # Fallback: auto-generate tags from metadata
+    auto_tags = set()
+    
+    # 1. Add prompt type as a tag (convert "study-notes" to "StudyNotes")
+    prompt_tag = prompt_name.replace("-", " ").title().replace(" ", "")
+    auto_tags.add(prompt_tag)
+    
+    # 2. Add channel name (cleaned - remove special chars, limit length)
+    channel_clean = re.sub(r'[^\w\s]', '', channel).strip()
+    if channel_clean:
+        channel_tag = channel_clean.replace(" ", "")[:25]
+        auto_tags.add(channel_tag)
+    
+    # 3. Extract key words from video title (capitalized words, likely topics)
+    stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 
+                  'of', 'with', 'by', 'from', 'is', 'it', 'this', 'that', 'how', 'what',
+                  'why', 'when', 'where', 'who', 'i', 'you', 'we', 'my', 'your', 'our'}
+    
+    title_words = re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b', video_title)
+    for word in title_words:
+        if word.lower() not in stop_words and len(word) > 2:
+            auto_tags.add(word.replace(" ", ""))
+            if len(auto_tags) >= 10:
+                break
+    
+    return list(auto_tags)[:10]
+
+
+def strip_title_and_tags_from_notes(notes: str) -> str:
+    """Remove title heading and tags line from notes for Notion body (these go in page properties)."""
+    lines = notes.split('\n')
+    result_lines = []
+    skip_next_empty = False
+    found_title = False
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Skip the title line (first ### that's not Summary or numbered)
+        if not found_title and stripped.startswith('### ') and not stripped.startswith('### Summary') and not re.match(r'### \d+\.', stripped):
+            found_title = True
+            skip_next_empty = True
+            continue
+        
+        # Skip the Tags line
+        if stripped.startswith('**Tags:**'):
+            skip_next_empty = True
+            continue
+        
+        # Skip empty line after removed content
+        if skip_next_empty and not stripped:
+            skip_next_empty = False
+            continue
+        
+        skip_next_empty = False
+        result_lines.append(line)
+    
+    return '\n'.join(result_lines)
+
+
+def publish_to_notion(
+    notes: str,
+    video_title: str,
+    video_id: str,
+    channel: str,
+    duration: str,
+    provider: str,
+    prompt_name: str,
+) -> str:
+    """
+    Publish notes to Notion database.
+    
+    Returns the Notion page URL.
+    Handles Notion's 100-block limit by batching.
+    Auto-generates tags from content (not AI-generated).
+    """
+    notion_key = os.getenv("NOTION_API_KEY")
+    database_id = os.getenv("NOTION_DATABASE_ID")
+    
+    if not notion_key or not database_id:
+        raise ValueError("NOTION_API_KEY and NOTION_DATABASE_ID must be set in .env")
+    
+    notion = NotionClient(auth=notion_key)
+    
+    # Extract title from notes
+    notes_title = extract_title_from_notes(notes)
+    
+    # Auto-generate tags from content
+    tags = generate_tags_from_content(notes, video_title, channel, prompt_name)
+    
+    # Use extracted title if available, otherwise fall back to video title
+    page_title = notes_title if notes_title else video_title
+    
+    # Strip title from body content (title goes in page property)
+    body_content = strip_title_and_tags_from_notes(notes)
+    
+    # Convert markdown to Notion blocks (without title/hashtags)
+    all_blocks = markdown_to_notion_blocks(body_content)
+    
+    # Notion API limits: 100 blocks per request
+    # Create page with first batch of blocks
+    first_batch = all_blocks[:100]
+    remaining_blocks = all_blocks[100:]
+    
+    # Build properties dict
+    properties = {
+        "Name": {"title": [{"text": {"content": page_title[:100]}}]},  # Title limit
+        "YouTube URL": {"url": f"https://www.youtube.com/watch?v={video_id}"},
+        "Channel": {"rich_text": [{"text": {"content": channel[:200]}}]},
+        "Duration": {"rich_text": [{"text": {"content": duration}}]},
+        "Provider": {"select": {"name": PROVIDERS[provider]["name"]}},
+        "Prompt": {"select": {"name": prompt_name}},
+        "Date Added": {"date": {"start": datetime.now().strftime("%Y-%m-%d")}},
+    }
+    
+    # Add auto-generated Tags
+    if tags:
+        properties["Tags"] = {"multi_select": [{"name": tag} for tag in tags]}
+    
+    # Create the page with properties and initial content
+    page = notion.pages.create(
+        parent={"database_id": database_id},
+        properties=properties,
+        children=first_batch,
+    )
+    
+    page_id = page["id"]
+    
+    # Append remaining blocks in batches of 100
+    while remaining_blocks:
+        batch = remaining_blocks[:100]
+        remaining_blocks = remaining_blocks[100:]
+        notion.blocks.children.append(block_id=page_id, children=batch)
+    
+    return page["url"]
+
+
+# ============================================================
 # MAIN
 # ============================================================
 
@@ -983,9 +1335,29 @@ def main():
             transcript_words=transcript_words,
         )
 
+        # Publish to Notion if configured
+        notion_url = None
+        if os.getenv("NOTION_API_KEY") and os.getenv("NOTION_DATABASE_ID"):
+            print("📤 Publishing to Notion...")
+            try:
+                notion_url = publish_to_notion(
+                    notes=notes,
+                    video_title=video_info["title"],
+                    video_id=video_id,
+                    channel=video_info["channel"],
+                    duration=video_info["duration"],
+                    provider=provider,
+                    prompt_name=prompt_name,
+                )
+                print(f"   ✅ Published to Notion")
+            except Exception as e:
+                print(f"   ⚠️  Notion publish failed: {e}")
+
         print("\n" + "=" * 50)
         print("✅ Success!")
-        print(f"   {filepath}")
+        print(f"   📁 Local: {filepath}")
+        if notion_url:
+            print(f"   🔗 Notion: {notion_url}")
         print("=" * 50 + "\n")
 
     except TranscriptsDisabled:

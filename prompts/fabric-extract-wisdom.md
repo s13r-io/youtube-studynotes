@@ -8,6 +8,8 @@ Take a step back and think step-by-step about how to achieve the best possible r
 
 - Extract a summary of the content in 25 words, including who is presenting and the content being discussed into a section called SUMMARY.
 
+- Extract 5-8 topic tags from the content into a section called TAGS. Format as: **Tags:** Tag1, Tag2, Tag3, Tag4, Tag5. Focus on technologies, tools, concepts, frameworks, and people mentioned. Use CamelCase for multi-word tags (e.g., MachineLearning, NotebookLM). Be specific.
+
 - Extract 20 to 50 of the most surprising, insightful, and/or interesting ideas from the input in a section called IDEAS:. If there are less than 50 then collect all of them. Make sure you extract at least 20.
 
 - Extract 10 to 20 of the best insights from the input and from a combination of the raw input and the IDEAS above into a section called INSIGHTS. These INSIGHTS should be fewer, more refined, more insightful, and more abstracted versions of the best ideas in the content. 

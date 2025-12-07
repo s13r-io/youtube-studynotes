@@ -16,6 +16,7 @@ Convert YouTube videos into structured, consultant-optimized study notes using A
 - **Progress indicator** — Visual feedback during generation
 - **Token usage stats** — See context usage and rate limits before selecting a provider
 - **Compact filenames** — Uses provider nicknames for shorter output filenames
+- **Notion integration** — Automatically publish notes to a Notion database (optional)
 
 ---
 
@@ -75,6 +76,10 @@ OPENROUTER_API_KEY=your_key_here
 
 # Z.AI (Paid) — https://z.ai
 ZAI_API_KEY=your_key_here
+
+# Notion (Optional) — https://developers.notion.com
+NOTION_API_KEY=your_integration_token_here
+NOTION_DATABASE_ID=your_database_id_here
 ```
 
 ### 5. Run the App
@@ -184,6 +189,8 @@ YouTubeNotes/<video_id>_<title>_<prompt>_<provider>.md
 
 Example: `dC8e2hHXmgM_How_to_AI_Evals_study-notes_gemini2.5Flash.md`
 
+> **Tip:** If Notion is configured, notes are also automatically published to your Notion database. See [Notion Integration](#notion-integration-optional).
+
 ---
 
 ## Adding New Providers
@@ -252,6 +259,62 @@ Most modern LLM providers use OpenAI-compatible APIs. To add one, simply add an 
 2. Sign up / Sign in
 3. Go to **Keys** → **Create Key**
 4. Copy and add to `.env`
+
+---
+
+## Notion Integration (Optional)
+
+Automatically publish your study notes to a Notion database. When configured, notes are saved both locally and to Notion.
+
+### Setting Up Notion
+
+#### 1. Create a Notion Integration
+
+1. Go to [notion.so/my-integrations](https://www.notion.so/my-integrations)
+2. Click **+ New integration**
+3. Give it a name (e.g., "YouTube Notes")
+4. Select the workspace where your database will live
+5. Click **Submit** → copy the **Internal Integration Token**
+6. Add to `.env`: `NOTION_API_KEY=secret_xxx...`
+
+#### 2. Create a Notion Database
+
+Create a new database in Notion with these properties:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| **Name** | Title | Page title (auto-populated from notes) |
+| **YouTube URL** | URL | Link to the source video |
+| **Channel** | Text | Video channel name |
+| **Duration** | Text | Video duration |
+| **Provider** | Select | AI provider used (Gemini, Groq, etc.) |
+| **Prompt** | Select | Prompt template used |
+| **Tags** | Multi-select | Auto-generated content tags |
+| **Date Added** | Date | When the note was created |
+
+#### 3. Share Database with Integration
+
+1. Open your database in Notion
+2. Click **•••** (top-right) → **Connections** → **Connect to** → Select your integration
+3. Copy the database ID from the URL:
+   ```
+   https://notion.so/workspace/DATABASE_ID?v=...
+                            ^^^^^^^^^^^^^^^^
+   ```
+4. Add to `.env`: `NOTION_DATABASE_ID=abc123...`
+
+### What Gets Published
+
+- **Title**: Extracted from the notes (first heading)
+- **Tags**: AI-generated tags from the `**Tags:**` line in notes, or auto-generated from metadata
+- **Full Content**: Markdown converted to Notion blocks (headings, bullets, numbered lists, bold text, links)
+- **Metadata**: YouTube URL, channel, duration, provider, prompt type, date
+
+### Notion Limits Handled
+
+- **100 blocks per request**: Large notes are automatically batched
+- **2000 chars per text block**: Long paragraphs are split automatically
+- **Rich text formatting**: Bold, links, and markdown links are preserved
 
 ---
 
@@ -337,6 +400,8 @@ The default `study-notes.md` template creates comprehensive study notes with:
 | **Timeout** | Long videos take 1-3 min; be patient or try Groq (faster) |
 | **Module not found** | Ensure virtual environment is activated: `source venv/bin/activate` |
 | **Permission denied** | Check file permissions in YouTubeNotes folder |
+| **Notion publish failed** | Check `NOTION_API_KEY` and `NOTION_DATABASE_ID` in `.env`; ensure database is shared with integration |
+| **Notion validation error** | Ensure database has all required properties (Name, YouTube URL, Channel, etc.) |
 
 ---
 
@@ -345,6 +410,7 @@ The default `study-notes.md` template creates comprehensive study notes with:
 - **Transcription**: `youtube-transcript-api` — Fetches YouTube's existing captions
 - **Video metadata**: `yt-dlp` — Title, channel, duration, and chapters extraction
 - **API calls**: `requests` — Direct REST calls, no SDK dependencies
+- **Notion publishing**: `notion-client` — Official Notion SDK for Python
 - **Configuration**: `python-dotenv` — Loads `.env` file
 - **Python**: 3.8+ recommended
 
