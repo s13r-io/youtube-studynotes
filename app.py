@@ -52,6 +52,11 @@ class TokenLimitExceeded(Exception):
         self.requested = requested
         super().__init__(message)
 
+
+class RestartException(Exception):
+    """Raised when user wants to restart from beginning."""
+    pass
+
 # ============================================================
 # CONFIGURATION
 # ============================================================
@@ -194,6 +199,9 @@ def select_provider_with_stats(word_count: int) -> str:
         print(f"     Context: {config['context']} | {status}")
 
     print("\n" + "-" * 60)
+    print("\nOptions:")
+    print("  [1-{}]: Select option".format(len(PROVIDERS)))
+    print("  [r]: Restart from beginning")
 
     if not available:
         print("\n❌ No API keys configured!")
@@ -205,7 +213,12 @@ def select_provider_with_stats(word_count: int) -> str:
 
     while True:
         try:
-            choice = input(f"\nEnter choice (1-{len(PROVIDERS)}): ").strip()
+            choice = input(f"\nEnter choice (1-{len(PROVIDERS)}): ").strip().lower()
+            
+            # Handle restart option
+            if choice in ['r', 'restart']:
+                raise RestartException()
+            
             idx = int(choice) - 1
             if 0 <= idx < len(provider_keys):
                 selected = provider_keys[idx]
@@ -215,7 +228,10 @@ def select_provider_with_stats(word_count: int) -> str:
             else:
                 print("   Invalid choice.")
         except ValueError:
-            print("   Please enter a number.")
+            print("   Please enter a number or 'r' to restart.")
+        except RestartException:
+            # Re-raise restart exception
+            raise
 
 
 # ============================================================
@@ -265,23 +281,33 @@ def select_prompt() -> str:
         print(f"\n  {idx}. {prompt}{default_tag}")
     
     print("\n" + "-" * 60)
+    print("\nOptions:")
+    print("  [1-{}]: Select option".format(len(prompts)))
+    print("  [r]: Restart from beginning")
     
     # Default is always first (index 1)
     default_idx = 1
     
     while True:
         try:
-            choice = input(f"\nEnter choice (1-{len(prompts)}) or press Enter for default [{default_idx}]: ").strip()
+            choice = input(f"\nEnter choice (1-{len(prompts)}) or press Enter for default [{default_idx}]: ").strip().lower()
             
             if not choice:
                 return prompts[default_idx - 1]
+            
+            # Handle restart option
+            if choice in ['r', 'restart']:
+                raise RestartException()
             
             idx = int(choice) - 1
             if 0 <= idx < len(prompts):
                 return prompts[idx]
             print("   Invalid choice.")
         except ValueError:
-            print("   Please enter a number.")
+            print("   Please enter a number or 'r' to restart.")
+        except RestartException:
+            # Re-raise restart exception
+            raise
 
 
 # ============================================================
@@ -698,37 +724,328 @@ def get_video_info(video_id: str) -> Dict[str, any]:
         return {"title": video_id, "channel": "Unknown", "duration": "Unknown", "chapters": []}
 
 
-def fetch_transcript(video_id: str) -> str:
-    """Fetch transcript from YouTube with fallback to any available language."""
-    api = YouTubeTranscriptApi()
-
-    # Try English first
+def download_subtitles_with_ytdlp(video_id: str) -> str:
+    """
+    Download subtitles in SRT format using yt-dlp.
+    
+    Args:
+        video_id: YouTube video ID
+        
+    Returns:
+        Path to downloaded SRT file
+        
+    Raises:
+        Exception: If download fails for any reason
+    """
+    import yt_dlp
+    
+    cache_dir = os.path.join(get_script_dir(), OUTPUT_FOLDER, TRANSCRIPTS_FOLDER)
+    os.makedirs(cache_dir, exist_ok=True)
+    srt_path = os.path.join(cache_dir, f"{video_id}.srt")
+    
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    
     try:
-        data = api.fetch(video_id, languages=["en", "en-US", "en-GB"])
-    except NoTranscriptFound:
-        # Fallback: try any available transcript
-        try:
-            transcripts = api.list(video_id)
-            for t in transcripts:
-                try:
-                    data = t.translate("en").fetch() if t.is_translatable else t.fetch()
-                    break
-                except Exception:
-                    continue
-            else:
-                raise NoTranscriptFound(video_id, ["en"], "No usable transcript")
-        except Exception as e:
-            raise NoTranscriptFound(video_id, ["en"], str(e))
+        # Extract video info to get subtitle URLs
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+            # Get available subtitles (prefer manual over automatic)
+            subtitles = info.get("subtitles", {})
+            automatic_captions = info.get("automatic_captions", {})
+            
+            # Combine both, prioritizing manual subtitles
+            all_subtitles = {}
+            all_subtitles.update(subtitles)
+            all_subtitles.update(automatic_captions)
+            
+            if not all_subtitles:
+                raise Exception("No subtitles available for this video")
+            
+            # Find English subtitle URL (prefer en, en-US, en-GB, then any)
+            subtitle_url = None
+            subtitle_lang = None
+            
+            for lang_code in ["en", "en-US", "en-GB"]:
+                if lang_code in all_subtitles:
+                    # Find SRT format if available
+                    for sub_info in all_subtitles[lang_code]:
+                        if sub_info.get("ext") == "srt":
+                            subtitle_url = sub_info.get("url")
+                            subtitle_lang = lang_code
+                            break
+                    if subtitle_url:
+                        break
+            
+            # If no English found, try any language
+            if not subtitle_url:
+                for lang_code, lang_subs in all_subtitles.items():
+                    for sub_info in lang_subs:
+                        if sub_info.get("ext") == "srt":
+                            subtitle_url = sub_info.get("url")
+                            subtitle_lang = lang_code
+                            break
+                    if subtitle_url:
+                        break
+            
+            if not subtitle_url:
+                raise Exception("No SRT format subtitles available")
+            
+            # Download subtitle file directly
+            response = requests.get(subtitle_url, timeout=30)
+            response.raise_for_status()
+            
+            # Save to file
+            with open(srt_path, "wb") as f:
+                f.write(response.content)
+            
+            return srt_path
+            
+    except requests.RequestException as e:
+        # Clean up partial files if any
+        if os.path.exists(srt_path):
+            try:
+                os.remove(srt_path)
+            except Exception:
+                pass
+        raise Exception(f"Failed to download subtitle file: {str(e)}")
+    except yt_dlp.utils.DownloadError as e:
+        # Clean up partial files if any
+        if os.path.exists(srt_path):
+            try:
+                os.remove(srt_path)
+            except Exception:
+                pass
+        raise Exception(f"yt-dlp extraction error: {str(e)}")
+    except Exception as e:
+        # Clean up partial files if any
+        if os.path.exists(srt_path):
+            try:
+                os.remove(srt_path)
+            except Exception:
+                pass
+        # Re-raise with more context
+        error_msg = str(e)
+        if "yt-dlp" not in error_msg.lower() and "subtitle" not in error_msg.lower():
+            error_msg = f"yt-dlp subtitle download failed: {error_msg}"
+        raise Exception(error_msg)
 
-    # Extract text from transcript data
-    if hasattr(data, "snippets"):
-        text = " ".join(s.text for s in data.snippets)
-    elif isinstance(data, list):
-        text = " ".join(entry.get("text", "") for entry in data)
-    else:
-        text = " ".join(str(entry) for entry in data)
 
+def parse_srt_to_text(srt_path: str) -> str:
+    """
+    Parse SRT file and extract plain text (remove timestamps and formatting).
+    
+    Args:
+        srt_path: Path to SRT file
+        
+    Returns:
+        Plain text string with all subtitle text joined
+    """
+    with open(srt_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    
+    text_lines = []
+    skip_next = False
+    
+    for line in lines:
+        line = line.strip()
+        
+        # Skip empty lines
+        if not line:
+            continue
+        
+        # Skip sequence numbers (numeric only)
+        if line.isdigit():
+            skip_next = True
+            continue
+        
+        # Skip timestamp lines (contain -->)
+        if "-->" in line:
+            skip_next = False
+            continue
+        
+        # Collect text lines
+        if not skip_next and line:
+            text_lines.append(line)
+    
+    # Join all text with spaces and normalize whitespace
+    text = " ".join(text_lines)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def convert_transcript_to_srt(transcript_data: list, video_id: str) -> str:
+    """
+    Convert youtube-transcript-api format to SRT format.
+    
+    Args:
+        transcript_data: List of dicts with 'start', 'duration', 'text' keys
+        video_id: YouTube video ID (for reference)
+        
+    Returns:
+        SRT content as string
+    """
+    srt_lines = []
+    
+    for idx, entry in enumerate(transcript_data, 1):
+        # Get values, handling different data structures
+        if isinstance(entry, dict):
+            start = entry.get("start", 0)
+            duration = entry.get("duration", 0)
+            text = entry.get("text", "")
+        elif hasattr(entry, "start") and hasattr(entry, "duration") and hasattr(entry, "text"):
+            start = entry.start
+            duration = entry.duration
+            text = entry.text
+        else:
+            continue
+        
+        if not text:
+            continue
+        
+        # Calculate end time
+        end = start + duration
+        
+        # Convert seconds to HH:MM:SS,mmm format
+        def format_timestamp(seconds: float) -> str:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            secs = int(seconds % 60)
+            millis = int((seconds % 1) * 1000)
+            return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+        
+        start_time = format_timestamp(start)
+        end_time = format_timestamp(end)
+        
+        # Format SRT entry
+        srt_lines.append(str(idx))
+        srt_lines.append(f"{start_time} --> {end_time}")
+        srt_lines.append(text)
+        srt_lines.append("")  # Blank line between entries
+    
+    return "\n".join(srt_lines)
+
+
+def save_srt_file(video_id: str, srt_content: str) -> str:
+    """
+    Save SRT content to file.
+    
+    Args:
+        video_id: YouTube video ID
+        srt_content: SRT formatted content string
+        
+    Returns:
+        Path to saved SRT file
+    """
+    cache_dir = os.path.join(get_script_dir(), OUTPUT_FOLDER, TRANSCRIPTS_FOLDER)
+    os.makedirs(cache_dir, exist_ok=True)
+    srt_path = os.path.join(cache_dir, f"{video_id}.srt")
+    
+    with open(srt_path, "w", encoding="utf-8") as f:
+        f.write(srt_content)
+    
+    return srt_path
+
+
+def fetch_transcript(video_id: str) -> str:
+    """
+    Fetch transcript from YouTube using yt-dlp (primary) or youtube-transcript-api (fallback).
+    Saves both SRT and TXT formats, returns plain text string for backward compatibility.
+    """
+    # Check cache first
+    cached_text = load_cached_transcript(video_id)
+    if cached_text:
+        return cached_text
+    
+    # PRIMARY METHOD: Try yt-dlp first
+    try:
+        srt_path = download_subtitles_with_ytdlp(video_id)
+        plain_text = parse_srt_to_text(srt_path)
+        
+        # Save plain text to cache
+        save_transcript_to_cache(video_id, plain_text)
+        
+        print(f"   Downloaded with yt-dlp")
+        return plain_text
+    
+    except Exception as ytdlp_error:
+        # FALLBACK METHOD: Use youtube-transcript-api
+        try:
+            api = YouTubeTranscriptApi()
+            
+            # Try English first
+            try:
+                data = api.fetch(video_id, languages=["en", "en-US", "en-GB"])
+            except NoTranscriptFound:
+                # Fallback: try any available transcript
+                try:
+                    transcripts = api.list(video_id)
+                    for t in transcripts:
+                        try:
+                            data = t.translate("en").fetch() if t.is_translatable else t.fetch()
+                            break
+                        except Exception:
+                            continue
+                    else:
+                        raise NoTranscriptFound(video_id, ["en"], "No usable transcript")
+                except Exception as e:
+                    raise NoTranscriptFound(video_id, ["en"], str(e))
+            
+            # Convert to list format if needed
+            if hasattr(data, "snippets"):
+                transcript_list = [
+                    {"start": s.start, "duration": s.duration, "text": s.text}
+                    for s in data.snippets
+                ]
+            elif isinstance(data, list):
+                transcript_list = data
+            else:
+                # Convert to list format
+                transcript_list = []
+                for entry in data:
+                    if isinstance(entry, dict):
+                        transcript_list.append(entry)
+                    else:
+                        # Try to extract from object
+                        transcript_list.append({
+                            "start": getattr(entry, "start", 0),
+                            "duration": getattr(entry, "duration", 0),
+                            "text": getattr(entry, "text", str(entry))
+                        })
+            
+            # Convert to SRT format and save
+            srt_content = convert_transcript_to_srt(transcript_list, video_id)
+            save_srt_file(video_id, srt_content)
+            
+            # Extract plain text
+            if isinstance(transcript_list, list):
+                text = " ".join(entry.get("text", "") if isinstance(entry, dict) else getattr(entry, "text", str(entry)) for entry in transcript_list)
+            else:
+                text = " ".join(str(entry) for entry in transcript_list)
+            
+            plain_text = re.sub(r"\s+", " ", text).strip()
+            
+            # Save plain text to cache
+            save_transcript_to_cache(video_id, plain_text)
+            
+            print(f"   Downloaded with youtube-transcript-api (yt-dlp failed)")
+            return plain_text
+        
+        except NoTranscriptFound:
+            # Both methods failed, raise exception
+            raise
+        except Exception as api_error:
+            # If youtube-transcript-api also fails, raise with context
+            raise NoTranscriptFound(
+                video_id,
+                ["en"],
+                f"Both yt-dlp and youtube-transcript-api failed. yt-dlp: {str(ytdlp_error)}, api: {str(api_error)}"
+            )
 
 
 # ============================================================
@@ -1251,127 +1568,154 @@ def main():
     """Main entry point."""
     args = parse_args()
     
-    print("\n" + "=" * 60)
-    print("  📚 YouTube Study Notes Generator")
-    print("=" * 60)
+    # Outer loop for restart capability
+    while True:
+        try:
+            print("\n" + "=" * 60)
+            print("  📚 YouTube Study Notes Generator")
+            print("=" * 60)
 
-    # Get URL
-    url = args.url if args.url else input("\n🎬 Enter YouTube URL: ").strip()
-    if not url:
-        print("❌ No URL provided.")
-        sys.exit(1)
-
-    if args.url:
-        print(f"\n🎬 YouTube URL: {url}")
-
-    try:
-        # Process video
-        print("\n📎 Extracting video ID...")
-        video_id = extract_video_id(url)
-        print(f"   Video ID: {video_id}")
-
-        print("📝 Fetching video info...")
-        video_info = get_video_info(video_id)
-        print(f"   Title: {video_info['title']}")
-        print(f"   Channel: {video_info['channel']}")
-        print(f"   Duration: {video_info['duration']}")
-        if video_info.get("chapters"):
-            print(f"   Chapters: {len(video_info['chapters'])} found ✓")
-        else:
-            print(f"   Chapters: None (LLM will generate key moments)")
-
-        # Check transcript cache first
-        print("📜 Fetching transcript...")
-        transcript = load_cached_transcript(video_id)
-        if transcript:
-            print(f"   Loaded from cache")
-        else:
-            transcript = fetch_transcript(video_id)
-            save_transcript_to_cache(video_id, transcript)
-            print(f"   Fetched and cached")
-        transcript_words = len(transcript.split())
-        print(f"   Transcript: {transcript_words:,} words")
-
-        # Select prompt (CLI argument or interactive)
-        if args.prompt:
-            prompt_name = args.prompt
-            available_prompts = get_available_prompts()
-            if prompt_name not in available_prompts:
-                print(f"\n❌ Prompt '{prompt_name}' not found.")
-                print(f"   Available prompts: {', '.join(available_prompts)}")
+            # Get URL
+            url = args.url if args.url else input("\n🎬 Enter YouTube URL: ").strip()
+            if not url:
+                print("❌ No URL provided.")
                 sys.exit(1)
-            print(f"\n📝 Using prompt: {prompt_name}")
-        else:
-            prompt_name = select_prompt()
-            print(f"\n✅ Selected prompt: {prompt_name}")
 
-        # Select provider with stats
-        provider = select_provider_with_stats(transcript_words)
-        print(f"\n✅ Selected provider: {PROVIDERS[provider]['name']}")
+            if args.url:
+                print(f"\n🎬 YouTube URL: {url}")
 
-        print("\n📋 Loading system prompt...")
-        system_prompt = load_system_prompt(prompt_name)
-        print(f"   Loaded: {PROMPTS_FOLDER}/{prompt_name}.md")
-
-        # Generate and save
-        notes = generate_notes(
-            provider,
-            system_prompt,
-            transcript,
-            video_info["title"],
-            video_id,
-            chapters=video_info.get("chapters", []),
-        )
-
-        print("💾 Saving notes...")
-        filepath = save_notes(
-            notes=notes,
-            video_title=video_info["title"],
-            video_id=video_id,
-            provider=provider,
-            prompt_name=prompt_name,
-            channel=video_info["channel"],
-            duration=video_info["duration"],
-            transcript_words=transcript_words,
-        )
-
-        # Publish to Notion if configured
-        notion_url = None
-        if os.getenv("NOTION_API_KEY") and os.getenv("NOTION_DATABASE_ID"):
-            print("📤 Publishing to Notion...")
             try:
-                notion_url = publish_to_notion(
+                # Process video
+                print("\n📎 Extracting video ID...")
+                video_id = extract_video_id(url)
+                print(f"   Video ID: {video_id}")
+
+                print("📝 Fetching video info...")
+                video_info = get_video_info(video_id)
+                print(f"   Title: {video_info['title']}")
+                print(f"   Channel: {video_info['channel']}")
+                print(f"   Duration: {video_info['duration']}")
+                if video_info.get("chapters"):
+                    print(f"   Chapters: {len(video_info['chapters'])} found ✓")
+                else:
+                    print(f"   Chapters: None (LLM will generate key moments)")
+
+                # Check transcript cache first
+                print("📜 Fetching transcript...")
+                transcript = load_cached_transcript(video_id)
+                if transcript:
+                    print(f"   Loaded from cache")
+                else:
+                    transcript = fetch_transcript(video_id)
+                    save_transcript_to_cache(video_id, transcript)
+                    print(f"   Fetched and cached")
+                transcript_words = len(transcript.split())
+                print(f"   Transcript: {transcript_words:,} words")
+
+                # Prompt selection loop (allows going back from provider menu)
+                provider_selected = False
+                while not provider_selected:
+                    try:
+                        # Select prompt (CLI argument or interactive)
+                        if args.prompt:
+                            prompt_name = args.prompt
+                            available_prompts = get_available_prompts()
+                            if prompt_name not in available_prompts:
+                                print(f"\n❌ Prompt '{prompt_name}' not found.")
+                                print(f"   Available prompts: {', '.join(available_prompts)}")
+                                sys.exit(1)
+                            print(f"\n📝 Using prompt: {prompt_name}")
+                        else:
+                            prompt_name = select_prompt()
+                            print(f"\n✅ Selected prompt: {prompt_name}")
+                        
+                        # Provider selection loop
+                        while True:
+                            try:
+                                # Select provider with stats
+                                provider = select_provider_with_stats(transcript_words)
+                                print(f"\n✅ Selected provider: {PROVIDERS[provider]['name']}")
+                                provider_selected = True
+                                break  # Exit provider selection loop on success
+                            except RestartException:
+                                raise  # Re-raise to outer loop
+                        
+                    except RestartException:
+                        raise  # Re-raise to outer loop
+
+                print("\n📋 Loading system prompt...")
+                system_prompt = load_system_prompt(prompt_name)
+                print(f"   Loaded: {PROMPTS_FOLDER}/{prompt_name}.md")
+
+                # Generate and save
+                notes = generate_notes(
+                    provider,
+                    system_prompt,
+                    transcript,
+                    video_info["title"],
+                    video_id,
+                    chapters=video_info.get("chapters", []),
+                )
+
+                print("💾 Saving notes...")
+                filepath = save_notes(
                     notes=notes,
                     video_title=video_info["title"],
                     video_id=video_id,
-                    channel=video_info["channel"],
-                    duration=video_info["duration"],
                     provider=provider,
                     prompt_name=prompt_name,
+                    channel=video_info["channel"],
+                    duration=video_info["duration"],
+                    transcript_words=transcript_words,
                 )
-                print(f"   ✅ Published to Notion")
+
+                # Publish to Notion if configured
+                notion_url = None
+                if os.getenv("NOTION_API_KEY") and os.getenv("NOTION_DATABASE_ID"):
+                    print("📤 Publishing to Notion...")
+                    try:
+                        notion_url = publish_to_notion(
+                            notes=notes,
+                            video_title=video_info["title"],
+                            video_id=video_id,
+                            channel=video_info["channel"],
+                            duration=video_info["duration"],
+                            provider=provider,
+                            prompt_name=prompt_name,
+                        )
+                        print(f"   ✅ Published to Notion")
+                    except Exception as e:
+                        print(f"   ⚠️  Notion publish failed: {e}")
+
+                print("\n" + "=" * 50)
+                print("✅ Success!")
+                print(f"   📁 Local: {filepath}")
+                if notion_url:
+                    print(f"   🔗 Notion: {notion_url}")
+                print("=" * 50 + "\n")
+                
+                # Successfully completed, exit outer loop
+                break
+
+            except TranscriptsDisabled:
+                print("\n❌ Transcripts are disabled for this video.")
+                sys.exit(1)
+            except NoTranscriptFound:
+                print("\n❌ No transcript found for this video.")
+                sys.exit(1)
+            except KeyboardInterrupt:
+                print("\n\n⚠️  Cancelled by user.")
+                sys.exit(130)
+            except RestartException:
+                # Restart from beginning (will continue outer loop)
+                continue
             except Exception as e:
-                print(f"   ⚠️  Notion publish failed: {e}")
-
-        print("\n" + "=" * 50)
-        print("✅ Success!")
-        print(f"   📁 Local: {filepath}")
-        if notion_url:
-            print(f"   🔗 Notion: {notion_url}")
-        print("=" * 50 + "\n")
-
-    except TranscriptsDisabled:
-        print("\n❌ Transcripts are disabled for this video.")
-        sys.exit(1)
-    except NoTranscriptFound:
-        print("\n❌ No transcript found for this video.")
-        sys.exit(1)
-    except KeyboardInterrupt:
-        print("\n\n⚠️  Cancelled by user.")
-        sys.exit(130)
-    except Exception as e:
-        print(f"\n❌ Error: {e}")
-        sys.exit(1)
+                print(f"\n❌ Error: {e}")
+                sys.exit(1)
+        
+        except RestartException:
+            # Restart from beginning (will continue outer loop)
+            continue
 
 
 if __name__ == "__main__":

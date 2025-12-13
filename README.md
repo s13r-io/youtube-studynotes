@@ -8,9 +8,11 @@ Convert YouTube videos into structured, consultant-optimized study notes using A
 
 - **Multi-provider support** — Choose between Google Gemini, Groq, OpenRouter, or Z.AI
 - **Easy provider configuration** — Add new providers via `providers.py` without code changes
-- **Automatic transcription** — Fetches YouTube's auto-generated captions
+- **Dual subtitle download** — Uses yt-dlp (primary) with youtube-transcript-api fallback for reliable subtitle fetching
+- **SRT + TXT formats** — Saves both timestamped SRT files and plain text transcripts
 - **YouTube chapters integration** — Uses built-in video chapters as key moments when available
 - **Multiple prompt templates** — Choose from different note formats via CLI or interactive menu
+- **Menu navigation** — Restart option in interactive menus to go back to URL input
 - **Smart overwriting** — Re-running on the same video updates the existing note
 - **Transcript caching** — Transcripts are saved locally to avoid re-fetching
 - **Progress indicator** — Visual feedback during generation
@@ -37,7 +39,7 @@ Convert YouTube videos into structured, consultant-optimized study notes using A
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/skarmakar-basu/youtube-studynotes.git
+git clone https://github.com/s13r-io/youtube-studynotes.git
 cd youtube-studynotes
 ```
 
@@ -152,6 +154,10 @@ python app.py -p study-notes "URL"            # Short form
   2. quick-summary
      Create a concise bullet-point summary of the video
 
+Options:
+  [1-2]: Select option
+  [r]: Restart from beginning
+
 Enter choice (1-2) or press Enter for default [1]: 
 ```
 
@@ -176,6 +182,10 @@ Enter choice (1-2) or press Enter for default [1]:
   4. Z.AI GLM-4.6 [PAID]
      Context: 32K tokens | ✅ Usage: 60.9%
 
+Options:
+  [1-4]: Select option
+  [r]: Restart from beginning
+
 Enter choice (1-4): 1
 ```
 
@@ -188,6 +198,10 @@ YouTubeNotes/<video_id>_<title>_<prompt>_<provider>.md
 ```
 
 Example: `dC8e2hHXmgM_How_to_AI_Evals_study-notes_gemini2.5Flash.md`
+
+Transcripts are cached in `YouTubeNotes/transcripts/`:
+- `<video_id>.txt` — Plain text transcript (used for note generation)
+- `<video_id>.srt` — SRT format with timestamps (bonus file for reference)
 
 > **Tip:** If Notion is configured, notes are also automatically published to your Notion database. See [Notion Integration](#notion-integration-optional).
 
@@ -333,7 +347,8 @@ youtube-studynotes/
 ├── README.md           # This guide
 └── YouTubeNotes/       # Generated notes output
     ├── transcripts/    # Cached transcripts
-    │   └── <video_id>.txt
+    │   ├── <video_id>.txt  # Plain text transcript
+    │   └── <video_id>.srt  # SRT format with timestamps
     └── <video_id>_<title>_<prompt>_<provider>.md
 ```
 
@@ -407,7 +422,7 @@ The default `study-notes.md` template creates comprehensive study notes with:
 
 ## Technical Details
 
-- **Transcription**: `youtube-transcript-api` — Fetches YouTube's existing captions
+- **Transcription**: `yt-dlp` (primary) + `youtube-transcript-api` (fallback) — Downloads subtitles in SRT format, extracts plain text, saves both formats
 - **Video metadata**: `yt-dlp` — Title, channel, duration, and chapters extraction
 - **API calls**: `requests` — Direct REST calls, no SDK dependencies
 - **Notion publishing**: `notion-client` — Official Notion SDK for Python
