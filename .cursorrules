@@ -12,7 +12,7 @@ YouTubeNotes/transcripts/video_id2.txt
 YouTubeNotes/transcripts/video_id3.txt
 ```
 
-## When User Says "Complete task in CURSOR_TASK.md" or Similar
+## When User Says "Run CURSOR_TASK.md" or Similar
 
 Process ALL videos in the queue sequentially until CURSOR_TASK.md is empty:
 
@@ -59,6 +59,12 @@ Process ALL videos in the queue sequentially until CURSOR_TASK.md is empty:
       - Show file path where summary was saved
       - Show Notion URL if published
 
+   i. **Clear context before next video**:
+      - Explicitly state: "Context cleared. Ready for next video."
+      - Do NOT carry over any content, details, or context from the previous video
+      - Each video must be processed independently with fresh context
+      - Only retain: the workflow instructions and the remaining queue items
+
 3. **After processing all videos:**
    - Display completion summary: "✅ All {count} videos processed!"
    - Show total summaries generated
@@ -70,6 +76,8 @@ Process ALL videos in the queue sequentially until CURSOR_TASK.md is empty:
 ### Sequential Processing
 - Process videos one at a time (not in parallel)
 - Complete each video fully (read → generate → save → publish → remove) before moving to next
+- **CRITICAL: Clear context after each video** - Do not carry over any video-specific content, transcript details, or generated summaries to the next video
+- Each video is processed independently with fresh context
 - If an error occurs on one video, log it and continue with the next video
 - Never skip videos unless explicitly instructed
 
