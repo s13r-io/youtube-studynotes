@@ -6,7 +6,9 @@ Convert YouTube videos into structured, consultant-optimized study notes using A
 
 ## Features
 
-- **Multi-provider support** — Choose between Google Gemini, Groq, OpenRouter, or Z.AI
+- **Two workflow options** — API-based workflow (`ytnotes`) or Cursor workflow (`ytcursor`) with built-in LLM
+- **Batch processing** — Download transcripts for multiple videos and process them all at once (Cursor workflow)
+- **Multi-provider support** — Choose between Google Gemini, Groq, OpenRouter, or Z.AI (API workflow)
 - **Easy provider configuration** — Add new providers via `providers.py` without code changes
 - **Dual subtitle download** — Uses yt-dlp (primary) with youtube-transcript-api fallback for reliable subtitle fetching
 - **SRT + TXT formats** — Saves both timestamped SRT files and plain text transcripts
@@ -102,16 +104,21 @@ python app.py "URL" --prompt study-notes
 
 ---
 
-## Quick Command: `ytnotes`
+## Quick Commands
 
-A shortcut command is available so you don't need to activate the virtual environment manually.
+Shortcut commands are available so you don't need to activate the virtual environment manually.
 
-**First time setup** (run once after installation):
+### `ytnotes` - API-Based Workflow
+
+Uses external APIs (Gemini, Groq, etc.) to generate notes.
+
+**First time setup** (add to `~/.zshrc`):
 ```bash
+alias ytnotes='cd /path/to/project && source venv/bin/activate && python app.py'
 source ~/.zshrc
 ```
 
-**Then use from anywhere:**
+**Usage:**
 ```bash
 ytnotes                              # Interactive mode
 ytnotes "URL"                        # With URL
@@ -119,38 +126,100 @@ ytnotes "URL" --prompt study-notes   # With specific prompt
 ytnotes "URL" -p quick-summary       # Short form
 ```
 
-This is equivalent to `cd /path/to/project && source venv/bin/activate && python app.py`.
+### `ytcursor` - Cursor Workflow
+
+Uses Cursor's built-in LLM (no API keys needed). Supports batch processing.
+
+**First time setup** (add to `~/.zshrc`):
+```bash
+alias ytcursor='cd /path/to/project && source venv/bin/activate && python cursor_workflow.py'
+source ~/.zshrc
+```
+
+**Usage:**
+```bash
+ytcursor                              # Interactive mode (prompts for URL)
+ytcursor "URL"                        # Add video to queue
+ytcursor --help                       # Show help message
+
+# Batch processing:
+ytcursor "URL1"                       # Add first video
+ytcursor "URL2"                       # Add second video
+ytcursor "URL3"                       # Add third video
+# Then in Cursor: "Complete the task in CURSOR_TASK.md"
+# Cursor processes all videos sequentially
+```
+
+**See [Using Cursor's Built-in LLM](#using-cursors-built-in-llm-zero-api-costs) for complete documentation.**
 
 ---
 
 ## Using Cursor's Built-in LLM (Zero API Costs)
 
-**New!** If you have a Cursor subscription, you can generate notes using Cursor's built-in LLMs instead of external APIs.
+**New!** If you have a Cursor subscription, you can generate notes using Cursor's built-in LLMs instead of external APIs. This workflow supports **batch processing** - download transcripts for multiple videos and process them all at once.
 
 ### Quick Start with Cursor
 
+**Option 1: Using the alias (recommended)**
 ```bash
-# Run the Cursor workflow
-./cursor_notes.sh "https://www.youtube.com/watch?v=VIDEO_ID"
+# Add video to queue
+ytcursor "https://www.youtube.com/watch?v=VIDEO_ID"
 
 # Then in Cursor Chat/Composer, say:
 "Complete the task in CURSOR_TASK.md"
 ```
 
-**That's it!** The workflow:
-1. Downloads the transcript (no LLM needed)
-2. Creates a task file for Cursor
-3. You tell Cursor to process it using its built-in LLM
-4. Notes are generated using your Cursor subscription (Claude, GPT-4, etc.)
+**Option 2: Using the script directly**
+```bash
+# Run the Cursor workflow
+./cursor_notes.sh "https://www.youtube.com/watch?v=VIDEO_ID"
+
+# Or use Python directly
+python cursor_workflow.py "URL"
+```
+
+### Batch Processing
+
+The Cursor workflow supports batch processing - download transcripts for multiple videos, then process them all at once:
+
+```bash
+# Morning: Download transcripts for multiple videos
+ytcursor "https://www.youtube.com/watch?v=VIDEO1"
+ytcursor "https://www.youtube.com/watch?v=VIDEO2"
+ytcursor "https://www.youtube.com/watch?v=VIDEO3"
+
+# Afternoon: Process all at once
+# In Cursor Chat: "Complete the task in CURSOR_TASK.md"
+# Cursor processes all videos sequentially until queue is empty
+```
+
+**How it works:**
+1. Each `ytcursor` command downloads a transcript and adds it to `CURSOR_TASK.md` queue
+2. `CURSOR_TASK.md` contains just transcript file paths (one per line)
+3. Tell Cursor once: "Complete the task in CURSOR_TASK.md"
+4. Cursor processes all videos sequentially using `prompts/youtube-summary.md`
+5. Each completed video is automatically removed from the queue
+6. Process continues until queue is empty
 
 ### Benefits
 - ✅ **No API keys required** - Uses your Cursor subscription
 - ✅ **Choose your model** - Claude 3.5 Sonnet, GPT-4, Opus, etc.
+- ✅ **Batch processing** - Process multiple videos with one command
 - ✅ **Interactive refinement** - Edit and improve in real-time
 - ✅ **IDE integration** - Work directly in Cursor
+- ✅ **Automatic Notion publishing** - If configured, publishes after generation
+
+### Output Format
+
+Cursor workflow uses `youtube-summary.md` template and saves files as:
+```
+YouTubeNotes/{video_id}_summary_cursor.md
+```
 
 ### Full Documentation
-See **[CURSOR_WORKFLOW_GUIDE.md](CURSOR_WORKFLOW_GUIDE.md)** for complete instructions, tips, and troubleshooting.
+- **[CURSOR_WORKFLOW_GUIDE.md](CURSOR_WORKFLOW_GUIDE.md)** - Complete Cursor workflow guide
+- **[BATCH_PROCESSING_GUIDE.md](BATCH_PROCESSING_GUIDE.md)** - Batch processing details
+- **[CURSOR_QUICK_REF.md](CURSOR_QUICK_REF.md)** - Quick reference card
 
 ---
 
@@ -368,20 +437,31 @@ Create a new database in Notion with these properties:
 
 ```
 youtube-studynotes/
-├── app.py              # Main application logic
-├── run.sh              # Quick run script (used by ytnotes alias)
-├── providers.py        # Provider configurations (add new providers here!)
-├── prompts/            # Prompt templates folder
-│   └── study-notes.md  # Default study notes format
-├── requirements.txt    # Python dependencies
-├── .env                # API keys (create this, not committed)
-├── .gitignore          # Git ignore rules
-├── README.md           # This guide
-└── YouTubeNotes/       # Generated notes output
-    ├── transcripts/    # Cached transcripts
-    │   ├── <video_id>.txt  # Plain text transcript
-    │   └── <video_id>.srt  # SRT format with timestamps
-    └── <video_id>_<title>_<prompt>_<provider>.md
+├── app.py                    # Main application logic (API workflow)
+├── cursor_workflow.py        # Cursor workflow script (batch processing)
+├── run.sh                    # Quick run script (used by ytnotes alias)
+├── cursor_notes.sh           # Cursor workflow launcher
+├── providers.py              # Provider configurations (add new providers here!)
+├── publish_to_notion.py      # Notion publishing script
+├── remove_from_queue.py      # Queue management helper
+├── publish_latest.sh          # Publish latest summary to Notion
+├── .cursorrules              # Cursor AI workflow instructions
+├── CURSOR_TASK.md            # Queue file for batch processing (transcript paths)
+├── prompts/                  # Prompt templates folder
+│   ├── study-notes.md        # Default study notes format (API workflow)
+│   └── youtube-summary.md    # Summary format (Cursor workflow)
+├── requirements.txt          # Python dependencies
+├── .env                      # API keys (create this, not committed)
+├── .gitignore                # Git ignore rules
+├── README.md                 # This guide
+├── CURSOR_WORKFLOW_GUIDE.md  # Complete Cursor workflow documentation
+├── BATCH_PROCESSING_GUIDE.md # Batch processing guide
+└── YouTubeNotes/             # Generated notes output
+    ├── transcripts/          # Cached transcripts
+    │   ├── <video_id>.txt    # Plain text transcript
+    │   └── <video_id>.srt    # SRT format with timestamps
+    ├── <video_id>_<title>_<prompt>_<provider>.md  # API workflow output
+    └── <video_id>_summary_cursor.md              # Cursor workflow output
 ```
 
 ---
