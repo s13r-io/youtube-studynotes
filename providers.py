@@ -116,4 +116,19 @@ PROVIDERS = {
         "api_type": "zai",
         "api_url": "https://api.z.ai/api/coding/paas/v4/chat/completions",
     },
+    
+    # ============================================================
+    # CURSOR (Built-in LLM - no API key needed)
+    # ============================================================
+    "cursor": {
+        "name": "Cursor Built-in LLM",
+        "model": "claude-3.5-sonnet",  # Default model, varies by user selection
+        "nickname": "cursor",
+        "env_key": None,  # No API key needed - uses Cursor subscription
+        "context": "200K+ tokens",
+        "context_tokens": 200_000,
+        "free": True,  # Included in Cursor subscription
+        "api_type": "cursor",  # Not used for API calls, just for identification
+        "api_url": None,  # Not applicable - uses Cursor's built-in LLM
+    },
 }

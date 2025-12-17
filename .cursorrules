@@ -1,0 +1,136 @@
+# YouTube Study Notes Generator - Cursor Rules
+
+## Project Purpose
+This project generates YouTube video summaries from transcripts using AI. Transcripts are queued in CURSOR_TASK.md and processed sequentially.
+
+## CURSOR_TASK.md Format
+
+CURSOR_TASK.md is a simple queue file containing one transcript file path per line:
+```
+YouTubeNotes/transcripts/video_id1.txt
+YouTubeNotes/transcripts/video_id2.txt
+YouTubeNotes/transcripts/video_id3.txt
+```
+
+## When User Says "Complete task in CURSOR_TASK.md" or Similar
+
+Process ALL videos in the queue sequentially until CURSOR_TASK.md is empty:
+
+1. **Read CURSOR_TASK.md** line by line
+   - Each line is a transcript file path
+   - Skip empty lines
+   - Process videos in order (first to last)
+
+2. **For each transcript file in the queue:**
+
+   a. **Extract video ID** from the transcript filename:
+      - Format: `YouTubeNotes/transcripts/{video_id}.txt`
+      - Extract `{video_id}` from the path
+   
+   b. **Read the transcript file** from the path specified
+   
+   c. **Read the prompt template** from `prompts/youtube-summary.md`
+      - This is the ONLY template to use for all videos
+      - Follow ALL rules and instructions in youtube-summary.md
+   
+   d. **Generate summary** by:
+      - Following the youtube-summary.md template structure exactly
+      - Processing the entire transcript comprehensively
+      - Following all CRITICAL RULES from youtube-summary.md
+      - Formatting in clean Markdown
+   
+   e. **Save the output** to:
+      - Filename: `YouTubeNotes/{video_id}_summary_cursor.md`
+      - Location: `YouTubeNotes/` folder
+   
+   f. **Publish to Notion** (if configured):
+      - After saving, run: `source venv/bin/activate && python publish_to_notion.py "YouTubeNotes/{video_id}_summary_cursor.md"`
+      - The script will extract video metadata from the transcript or use defaults
+      - If Notion publishing succeeds, display the Notion page URL
+      - If Notion is not configured or publishing fails, silently continue (don't fail the task)
+   
+   g. **Remove completed item** from CURSOR_TASK.md:
+      - Remove the line containing this transcript path
+      - Keep all other lines intact
+      - Update the file immediately after processing
+   
+   h. **Show progress**:
+      - Display: "✅ Processed: {video_id} ({current}/{total})"
+      - Show file path where summary was saved
+      - Show Notion URL if published
+
+3. **After processing all videos:**
+   - Display completion summary: "✅ All {count} videos processed!"
+   - Show total summaries generated
+   - Show total Notion pages published (if applicable)
+   - CURSOR_TASK.md should now be empty (or contain only empty lines)
+
+## Processing Workflow Details
+
+### Sequential Processing
+- Process videos one at a time (not in parallel)
+- Complete each video fully (read → generate → save → publish → remove) before moving to next
+- If an error occurs on one video, log it and continue with the next video
+- Never skip videos unless explicitly instructed
+
+### Error Handling
+- If a transcript file doesn't exist: Log error, remove from queue, continue to next
+- If generation fails: Log error, remove from queue, continue to next
+- If Notion publish fails: Log warning, keep summary file, continue to next
+- Always remove processed items from queue (even on error) to prevent reprocessing
+
+### Progress Tracking
+- Show current video number: "Processing Video 1/5..."
+- Show remaining count: "3 videos remaining"
+- Show completion status after each video
+
+## Output Format Requirements
+
+Follow ALL requirements from `prompts/youtube-summary.md`:
+- Begin with Title heading (mandatory)
+- Follow with Tags line (mandatory)
+- Use clear headings and subheadings
+- Format code/technical terms in backticks
+- Use bullet points appropriately
+- Add bold/italic for emphasis
+- End with concise conclusion
+
+## File Naming Convention
+
+Format: `{video_id}_summary_cursor.md`
+
+Example: `dQw4w9WgXcQ_summary_cursor.md`
+
+## Quality Standards
+
+- Comprehensive coverage of all transcript content
+- Follow youtube-summary.md rules strictly
+- No redundancy (each idea appears once)
+- Strict fidelity to transcript (no invented content)
+- No filler or padding
+- Professional academic/technical writing style
+
+## Output Location
+
+All generated summaries go in: `YouTubeNotes/`
+
+## Direct Transcript Processing
+
+If user provides a YouTube URL directly and says "generate summary":
+1. Inform them to first run: `python cursor_workflow.py "URL"`
+2. Then return to process the generated CURSOR_TASK.md
+
+## Batch Processing Example
+
+If CURSOR_TASK.md contains:
+```
+YouTubeNotes/transcripts/video1.txt
+YouTubeNotes/transcripts/video2.txt
+YouTubeNotes/transcripts/video3.txt
+```
+
+Processing flow:
+1. Process video1 → save → publish → remove line 1
+2. Process video2 → save → publish → remove line 2
+3. Process video3 → save → publish → remove line 3
+4. Show "✅ All 3 videos processed!"

@@ -26,12 +26,13 @@ Convert YouTube videos into structured, consultant-optimized study notes using A
 
 | Provider | Model | Context | Free Tier | Best For |
 |----------|-------|---------|-----------|----------|
+| **Cursor Built-in** | Your choice (Claude, GPT-4, etc.) | 200K+ tokens | ✅ With subscription | IDE integration, no API costs |
 | **Google Gemini** | gemini-2.5-flash | 1M tokens | ✅ 15 req/min | Long videos, high quality |
 | **Groq** | Llama 3.3 70B | 128K tokens | ✅ 12K TPM limit | Short videos, fast results |
 | **OpenRouter** | Amazon Nova 2 Lite | 32K tokens | ✅ Free | General purpose |
 | **Z.AI** | GLM-4.6 | 32K tokens | ❌ Paid | Existing subscribers |
 
-> **Tip:** Adding more providers is easy! See [Adding New Providers](#adding-new-providers) below.
+> **Tip:** If you have a Cursor subscription, see [Using Cursor's Built-in LLM](#using-cursors-built-in-llm-zero-api-costs) for a zero-API-cost workflow!
 
 ---
 
@@ -119,6 +120,37 @@ ytnotes "URL" -p quick-summary       # Short form
 ```
 
 This is equivalent to `cd /path/to/project && source venv/bin/activate && python app.py`.
+
+---
+
+## Using Cursor's Built-in LLM (Zero API Costs)
+
+**New!** If you have a Cursor subscription, you can generate notes using Cursor's built-in LLMs instead of external APIs.
+
+### Quick Start with Cursor
+
+```bash
+# Run the Cursor workflow
+./cursor_notes.sh "https://www.youtube.com/watch?v=VIDEO_ID"
+
+# Then in Cursor Chat/Composer, say:
+"Complete the task in CURSOR_TASK.md"
+```
+
+**That's it!** The workflow:
+1. Downloads the transcript (no LLM needed)
+2. Creates a task file for Cursor
+3. You tell Cursor to process it using its built-in LLM
+4. Notes are generated using your Cursor subscription (Claude, GPT-4, etc.)
+
+### Benefits
+- ✅ **No API keys required** - Uses your Cursor subscription
+- ✅ **Choose your model** - Claude 3.5 Sonnet, GPT-4, Opus, etc.
+- ✅ **Interactive refinement** - Edit and improve in real-time
+- ✅ **IDE integration** - Work directly in Cursor
+
+### Full Documentation
+See **[CURSOR_WORKFLOW_GUIDE.md](CURSOR_WORKFLOW_GUIDE.md)** for complete instructions, tips, and troubleshooting.
 
 ---
 
