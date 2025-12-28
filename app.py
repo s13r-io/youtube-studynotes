@@ -1192,7 +1192,7 @@ Examples:
     return parser.parse_args()
 
 
-def generate_notes_from_transcript(video_id: str, transcript: str, metadata: dict, prompt_name: str = None) -> tuple:
+def generate_notes_from_transcript(video_id: str, transcript: str, metadata: dict, prompt_name: str = None, quick_mode: bool = False) -> tuple:
     """
     Generate notes from a pre-downloaded transcript.
     This function is called by main.py when transcript is already downloaded.
@@ -1202,40 +1202,58 @@ def generate_notes_from_transcript(video_id: str, transcript: str, metadata: dic
         transcript: Plain text transcript
         metadata: Video metadata dict (title, channel, duration, chapters)
         prompt_name: Optional prompt template name (if None, will prompt user)
+        quick_mode: If True, skip all prompts and use defaults (youtube-summary, openrouter)
 
     Returns:
         Tuple of (notes: str, provider: str, prompt_name: str)
     """
-    # Prompt selection loop (allows going back from provider menu)
-    provider_selected = False
-    final_provider = None
-    final_prompt_name = None
+    # Quick mode: use hardcoded defaults, skip all prompts
+    if quick_mode:
+        final_prompt_name = "youtube-summary"
+        final_provider = "openrouter"
 
-    while not provider_selected:
-        try:
-            # Select prompt if not provided
-            if not prompt_name:
-                prompt_name = select_prompt()
-            else:
-                available_prompts = get_available_prompts()
-                if prompt_name not in available_prompts:
-                    print(f"\n❌ Prompt '{prompt_name}' not found.")
-                    print(f"   Available prompts: {', '.join(available_prompts)}")
-                    sys.exit(1)
+        # Verify openrouter is available
+        available = get_available_providers()
+        if final_provider not in available:
+            print(f"\n❌ Quick mode requires {final_provider} API key.")
+            print(f"   Please add OPENROUTER_API_KEY to your .env file.")
+            sys.exit(1)
 
-            # Select provider
-            transcript_words = len(transcript.split())
-            provider = select_provider_with_stats(transcript_words)
+        print(f"\n⚡ Quick Mode:")
+        print(f"   Note Format: {final_prompt_name}")
+        print(f"   Provider: {PROVIDERS[final_provider]['name']}")
 
-            # If we get here, both selections succeeded
-            final_provider = provider
-            final_prompt_name = prompt_name
-            provider_selected = True
+    else:
+        # Prompt selection loop (allows going back from provider menu)
+        provider_selected = False
+        final_provider = None
+        final_prompt_name = None
 
-        except RestartException:
-            # Restart prompt selection
-            prompt_name = None
-            continue
+        while not provider_selected:
+            try:
+                # Select prompt if not provided
+                if not prompt_name:
+                    prompt_name = select_prompt()
+                else:
+                    available_prompts = get_available_prompts()
+                    if prompt_name not in available_prompts:
+                        print(f"\n❌ Prompt '{prompt_name}' not found.")
+                        print(f"   Available prompts: {', '.join(available_prompts)}")
+                        sys.exit(1)
+
+                # Select provider
+                transcript_words = len(transcript.split())
+                provider = select_provider_with_stats(transcript_words)
+
+                # If we get here, both selections succeeded
+                final_provider = provider
+                final_prompt_name = prompt_name
+                provider_selected = True
+
+            except RestartException:
+                # Restart prompt selection
+                prompt_name = None
+                continue
 
     # Load system prompt
     system_prompt = load_system_prompt(final_prompt_name)

@@ -55,8 +55,15 @@ def get_workflow_choice(transcript_info: dict) -> str:
             sys.exit(0)
 
 
-def run_api_workflow(video_id: str, transcript: str, metadata: dict):
-    """Run the API workflow with pre-downloaded transcript"""
+def run_api_workflow(video_id: str, transcript: str, metadata: dict, quick_mode: bool = False):
+    """Run the API workflow with pre-downloaded transcript
+
+    Args:
+        video_id: YouTube video ID
+        transcript: Transcript text
+        metadata: Video metadata dict
+        quick_mode: If True, skip all prompts and use defaults
+    """
     print("\n🚀 Starting API Workflow...")
     print("-" * 60)
 
@@ -68,7 +75,8 @@ def run_api_workflow(video_id: str, transcript: str, metadata: dict):
         notes, provider, prompt_name = app.generate_notes_from_transcript(
             video_id=video_id,
             transcript=transcript,
-            metadata=metadata
+            metadata=metadata,
+            quick_mode=quick_mode
         )
 
         if not notes:
@@ -79,8 +87,12 @@ def run_api_workflow(video_id: str, transcript: str, metadata: dict):
         output_path = app.save_notes(video_id, notes, metadata, prompt_name, provider)
         print(f"\n✓ Notes saved to: {output_path}")
 
-        # Ask about Notion
-        publish_choice = input("\nPublish to Notion? [y/N]: ").strip().lower()
+        # Ask about Notion (skip in quick mode - auto-publish)
+        if quick_mode:
+            publish_choice = 'y'
+        else:
+            publish_choice = input("\nPublish to Notion? [y/N]: ").strip().lower()
+
         if publish_choice in ['y', 'yes']:
             print("\n📤 Publishing to Notion...")
             try:
@@ -148,13 +160,30 @@ def run_cursor_workflow(video_id: str, transcript: str, metadata: dict):
 
 def main():
     """Main entry point"""
+    import argparse
+
+    # Parse arguments for -q flag
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("-q", "--quick", action="store_true", help="Quick mode: API workflow, youtube-summary, openrouter, auto-publish to Notion")
+    args, remaining = parser.parse_known_args()
+
+    quick_mode = args.quick
+
     print("\n🎬 YouTube Study Notes Generator")
+    if quick_mode:
+        print("⚡ Quick Mode: API workflow, youtube-summary, openrouter, auto-publish to Notion")
     print("=" * 60)
 
-    # Get YouTube URL
-    if len(sys.argv) > 1:
-        url = sys.argv[1]
-    else:
+    # Get YouTube URL (from remaining args after flags, or prompt)
+    url = None
+    # Check remaining args for non-flag values
+    for arg in remaining:
+        if not arg.startswith('-'):
+            url = arg
+            break
+
+    # If no URL found, prompt for it
+    if not url:
         try:
             url = input("\nEnter YouTube URL: ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -186,12 +215,15 @@ def main():
     info = get_transcript_info(transcript, metadata)
     display_transcript_info(info)
 
-    # Get workflow choice
-    workflow = get_workflow_choice(info)
+    # Get workflow choice (skip in quick mode - use API)
+    if quick_mode:
+        workflow = 'api'
+    else:
+        workflow = get_workflow_choice(info)
 
     # Run selected workflow
     if workflow == 'api':
-        run_api_workflow(video_id, transcript, metadata)
+        run_api_workflow(video_id, transcript, metadata, quick_mode=quick_mode)
     else:  # cursor
         run_cursor_workflow(video_id, transcript, metadata)
 

@@ -6,7 +6,9 @@ Convert YouTube videos into structured, consultant-optimized study notes using A
 
 ## Features
 
-- **Two workflow options** — API-based workflow (`ytnotes`) or Cursor workflow (`ytcursor`) with built-in LLM
+- **Unified entry point** — Single `main.py` with workflow selection (API or Cursor)
+- **Quick mode** — Automated processing with `-q` flag (API workflow, youtube-summary, auto-Notion)
+- **Two workflow options** — Interactive selection between API workflow (`ytnotes`) or Cursor workflow (`ytcursor`) with built-in LLM
 - **Batch processing** — Download transcripts for multiple videos and process them all at once (Cursor workflow)
 - **Multi-provider support** — Choose between Google Gemini, Groq, OpenRouter, or Z.AI (API workflow)
 - **Easy provider configuration** — Add new providers via `providers.py` without code changes
@@ -31,8 +33,8 @@ Convert YouTube videos into structured, consultant-optimized study notes using A
 | **Cursor Built-in** | Your choice (Claude, GPT-4, etc.) | 200K+ tokens | ✅ With subscription | IDE integration, no API costs |
 | **Google Gemini** | gemini-2.5-flash | 1M tokens | ✅ 15 req/min | Long videos, high quality |
 | **Groq** | Llama 3.3 70B | 128K tokens | ✅ 12K TPM limit | Short videos, fast results |
-| **OpenRouter** | Amazon Nova 2 Lite | 32K tokens | ✅ Free | General purpose |
-| **Z.AI** | GLM-4.6 | 32K tokens | ❌ Paid | Existing subscribers |
+| **OpenRouter** | Xiaomi: MiMo-V2-Flash | 256K tokens | ✅ Free | General purpose |
+| **Z.AI** | GLM-4.7 | 128K tokens | ❌ Paid | Existing subscribers |
 
 > **Tip:** If you have a Cursor subscription, see [Using Cursor's Built-in LLM](#using-cursors-built-in-llm-zero-api-costs) for a zero-API-cost workflow!
 
@@ -88,17 +90,24 @@ NOTION_DATABASE_ID=your_database_id_here
 ```
 
 ### 5. Run the App
+
+The project has a unified entry point (`main.py`) that lets you choose between API and Cursor workflows:
+
+```bash
+python main.py "https://www.youtube.com/watch?v=VIDEO_ID"    # Shows workflow selection menu
+python main.py -q "URL"                                      # Quick mode (auto API workflow)
+```
+
+Or use the convenience script:
+```bash
+./run.sh "URL"      # Interactive workflow selection
+./run.sh -q "URL"    # Quick mode
+```
+
+**For direct API access without workflow selection:**
 ```bash
 python app.py
-```
-
-Or with a URL directly:
-```bash
 python app.py "https://www.youtube.com/watch?v=VIDEO_ID"
-```
-
-Or specify a prompt template:
-```bash
 python app.py "URL" --prompt study-notes
 ```
 
@@ -108,22 +117,32 @@ python app.py "URL" --prompt study-notes
 
 Shortcut commands are available so you don't need to activate the virtual environment manually.
 
+### `run.sh` - Unified Entry Point
+
+Wrapper script for the unified workflow selection menu.
+
+**Usage:**
+```bash
+./run.sh                              # Interactive mode (prompts for URL)
+./run.sh "URL"                        # With URL
+./run.sh -q "URL"                     # Quick mode (auto API workflow, youtube-summary, auto-Notion)
+```
+
 ### `ytnotes` - API-Based Workflow
 
 Uses external APIs (Gemini, Groq, etc.) to generate notes.
 
 **First time setup** (add to `~/.zshrc`):
 ```bash
-alias ytnotes='cd /path/to/project && source venv/bin/activate && python app.py'
+alias ytnotes='cd /path/to/project && source venv/bin/activate && python main.py'
 source ~/.zshrc
 ```
 
 **Usage:**
 ```bash
-ytnotes                              # Interactive mode
+ytnotes                              # Interactive mode (prompts for URL and workflow)
 ytnotes "URL"                        # With URL
-ytnotes "URL" --prompt study-notes   # With specific prompt
-ytnotes "URL" -p quick-summary       # Short form
+ytnotes "URL" -q                      # Quick mode (auto API workflow)
 ```
 
 ### `ytcursor` - Cursor Workflow
@@ -156,22 +175,22 @@ ytcursor "URL3"                       # Add third video
 
 ## Using Cursor's Built-in LLM (Zero API Costs)
 
-**New!** If you have a Cursor subscription, you can generate notes using Cursor's built-in LLMs instead of external APIs. This workflow supports **batch processing** - download transcripts for multiple videos and process them all at once.
+**New!** If you have a Cursor subscription, you can generate notes using Cursor's built-in LLMs instead of external APIs. Access this workflow by running `python main.py` and selecting "Cursor Workflow" from the menu. This workflow supports **batch processing** - download transcripts for multiple videos and process them all at once.
 
 ### Quick Start with Cursor
 
-**Option 1: Using the alias (recommended)**
+**Option 1: Using main.py (recommended)**
 ```bash
-# Add video to queue
-ytcursor "https://www.youtube.com/watch?v=VIDEO_ID"
+# Add video to queue (selects Cursor Workflow from menu)
+python main.py "https://www.youtube.com/watch?v=VIDEO_ID"
 
 # Then in Cursor Chat/Composer, say:
 "Complete the task in CURSOR_TASK.md"
 ```
 
-**Option 2: Using the script directly**
+**Option 2: Using cursor_workflow.py directly**
 ```bash
-# Run the Cursor workflow
+# Add video to queue (direct Cursor workflow)
 ./cursor_notes.sh "https://www.youtube.com/watch?v=VIDEO_ID"
 
 # Or use Python directly
@@ -231,7 +250,27 @@ python app.py
 ```
 You'll be prompted for a YouTube URL, then shown prompt and provider options.
 
-### Direct URL Mode
+### Workflow Selection Mode
+```bash
+python main.py "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+```
+You'll be prompted to choose:
+- **[1] API Workflow** - Uses external APIs (Gemini, Groq, OpenRouter, etc.)
+- **[2] Cursor Workflow** - Uses Cursor's built-in LLM (no API cost)
+
+Then select your preferred prompt template and AI provider.
+
+### Quick Mode (Automated Processing)
+```bash
+python main.py -q "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+./run.sh -q "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+```
+Automatically selects API workflow with youtube-summary prompt and auto-publishes to Notion.
+Skips all interactive prompts.
+
+### Direct URL Mode (API Workflow Only)
+> **Note:** For direct API access without workflow selection, use `app.py` instead of `main.py`
+
 ```bash
 python app.py "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 ```
@@ -239,7 +278,7 @@ python app.py "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 ### With Specific Prompt
 ```bash
 python app.py "URL" --prompt study-notes      # Use study-notes template
-python app.py --prompt quick-summary "URL"    # Argument order is flexible
+python app.py --prompt youtube-summary "URL"   # Argument order is flexible
 python app.py -p study-notes "URL"            # Short form
 ```
 
@@ -249,17 +288,20 @@ python app.py -p study-notes "URL"            # Short form
   📝 Select Note Format
 ============================================================
 
-  1. study-notes [DEFAULT]
-     You are a Study-Note Generator creating notes for a profes
+  1. youtube-summary [DEFAULT]
+     Analytically rigorous summary of academic or technical videos
 
-  2. quick-summary
-     Create a concise bullet-point summary of the video
+  2. study-notes
+     Comprehensive study notes with 8 sections
+
+  3. fabric-extract-wisdom
+     Extract surprising insights, quotes, and wisdom
 
 Options:
-  [1-2]: Select option
+  [1-3]: Select option
   [r]: Restart from beginning
 
-Enter choice (1-2) or press Enter for default [1]: 
+Enter choice (1-3) or press Enter for default [1]:
 ```
 
 ### Provider Selection
@@ -277,11 +319,11 @@ Enter choice (1-2) or press Enter for default [1]:
   2. Groq (Llama 3.3 70B) [FREE]
      Context: 128K tokens | ⚠️ Exceeds 12K TPM rate limit
 
-  3. OpenRouter (Amazon Nova 2 Lite) [FREE]
-     Context: 32K tokens | ✅ Usage: 60.9%
+  3. OpenRouter (Xiaomi: MiMo-V2-Flash) [FREE]
+      Context: 256K tokens | ✅ Usage: 60.9%
 
-  4. Z.AI GLM-4.6 [PAID]
-     Context: 32K tokens | ✅ Usage: 60.9%
+  4. Z.AI GLM-4.7 [PAID]
+      Context: 128K tokens | ✅ Usage: 60.9%
 
 Options:
   [1-4]: Select option
@@ -299,6 +341,8 @@ YouTubeNotes/<video_id>_<title>_<prompt>_<provider>.md
 ```
 
 Example: `dC8e2hHXmgM_How_to_AI_Evals_study-notes_gemini2.5Flash.md`
+
+**Quick mode uses:** `{timestamp}_{title}_youtube-summary_openrouter.md`
 
 Transcripts are cached in `YouTubeNotes/transcripts/`:
 - `<video_id>.txt` — Plain text transcript (used for note generation)
@@ -437,9 +481,11 @@ Create a new database in Notion with these properties:
 
 ```
 youtube-studynotes/
-├── app.py                    # Main application logic (API workflow)
+├── main.py                   # Unified entry point (workflow selection)
+├── app.py                    # Main application logic (API workflow - direct access)
 ├── cursor_workflow.py        # Cursor workflow script (batch processing)
-├── run.sh                    # Quick run script (used by ytnotes alias)
+├── transcript_utils.py       # Shared transcript utilities
+├── run.sh                    # Quick run script wrapper for main.py
 ├── cursor_notes.sh           # Cursor workflow launcher
 ├── providers.py              # Provider configurations (add new providers here!)
 ├── publish_to_notion.py      # Notion publishing script
@@ -448,8 +494,9 @@ youtube-studynotes/
 ├── .cursorrules              # Cursor AI workflow instructions
 ├── CURSOR_TASK.md            # Queue file for batch processing (transcript paths)
 ├── prompts/                  # Prompt templates folder
-│   ├── study-notes.md        # Default study notes format (API workflow)
-│   └── youtube-summary.md    # Summary format (Cursor workflow)
+│   ├── youtube-summary.md    # Default API workflow prompt
+│   ├── study-notes.md        # Detailed structured notes
+│   └── fabric-extract-wisdom.md  # Wisdom extraction
 ├── requirements.txt          # Python dependencies
 ├── .env                      # API keys (create this, not committed)
 ├── .gitignore                # Git ignore rules
@@ -472,12 +519,16 @@ youtube-studynotes/
 
 The app supports multiple prompt templates stored in the `prompts/` folder. Each `.md` file is a separate template.
 
-```bash
-# Use default (study-notes)
-python app.py "URL"
+**Available Templates:**
+- **youtube-summary.md** (API workflow default) - Analytically rigorous summary
+- **study-notes.md** - Comprehensive study notes with 8 sections
+- **fabric-extract-wisdom.md** - Extract insights, quotes, and wisdom
 
+```bash
 # Use a specific prompt
-python app.py "URL" --prompt quick-summary
+python app.py "URL" --prompt youtube-summary
+python app.py "URL" --prompt study-notes
+python app.py "URL" --prompt fabric-extract-wisdom
 
 # Interactive selection
 python app.py "URL"  # Shows menu if multiple prompts exist
@@ -489,29 +540,27 @@ python app.py "URL"  # Shows menu if multiple prompts exist
 2. The first line becomes the description shown in the selection menu
 3. Write your system prompt instructions
 
-Example: `prompts/quick-summary.md`
+Example: `prompts/custom-notes.md`
 ```markdown
-Create a concise bullet-point summary of the video content.
+Create custom notes from this video.
 
 ## Instructions
-- Summarize the main points in 5-10 bullet points
-- Keep each point under 2 sentences
-- Focus on actionable takeaways
+- Follow your preferred format
+- Focus on specific aspects you care about
+- Use the structure that works best for you
 ...
 ```
 
-### Default Template (study-notes.md)
+### Default Template (youtube-summary.md)
 
-The default `study-notes.md` template creates comprehensive study notes with:
-1. **Title & Discovery Tags** — Clear title with hashtags
-2. **The Hook** — Why this topic matters
-3. **Core Concept** — The WHAT and WHY
-4. **How It Works** — The mechanics and HOW
-5. **Three Perspectives** — Real-world, technical, and pitfalls
-6. **Practical Cheat Sheet** — Quick reference bullets
-7. **Key Terms Glossary** — Important definitions
-8. **Memory Anchors** — Summary, analogy, flashcards, deeper questions
-9. **Key Moments** — Clickable timestamps (uses YouTube chapters when available, otherwise AI-generated)
+The default `youtube-summary.md` template creates analytically rigorous summaries of academic or technical videos with:
+1. **Title & Tags** — Title followed by topic tags
+2. **Abstract** — High-level summary of main topic and relevance
+3. **Structured Sections** — Key arguments, definitions, methods, evidence, results
+4. **Technical Emphasis** — Essential information prioritized over elaboration
+5. **Hierarchical Structure** — Clear headings and subheadings reflecting conceptual flow
+6. **Critical Concepts** — Highlighted using **bold** or *italic* formatting
+7. **Integrative Conclusion** — Summary of overarching insight and contribution
 
 ---
 
@@ -535,8 +584,10 @@ The default `study-notes.md` template creates comprehensive study notes with:
 ## Technical Details
 
 - **Transcription**: `yt-dlp` (primary) + `youtube-transcript-api` (fallback) — Downloads subtitles in SRT format, extracts plain text, saves both formats
+- **Transcript utilities**: `transcript_utils.py` — Shared transcript downloading, caching, and metadata functions used across workflows
 - **Video metadata**: `yt-dlp` — Title, channel, duration, and chapters extraction
 - **API calls**: `requests` — Direct REST calls, no SDK dependencies
+- **Chunked processing**: For large transcripts exceeding TPM limits, uses map-reduce approach to process in chunks
 - **Notion publishing**: `notion-client` — Official Notion SDK for Python
 - **Configuration**: `python-dotenv` — Loads `.env` file
 - **Python**: 3.8+ recommended

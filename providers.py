@@ -53,7 +53,7 @@ PROVIDERS = {
         "api_type": "openai",
         "api_url": "https://api.groq.com/openai/v1/chat/completions",
     },
-    "openrouter-nova-lite": {
+    "openrouter": {
         "name": "OpenRouter (Xiaomi: MiMo-V2-Flash)",
         "model": "xiaomi/mimo-v2-flash:free",
         "nickname": "openrouterMimoFlash",
