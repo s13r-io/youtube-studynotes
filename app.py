@@ -405,6 +405,39 @@ def call_gemini(system_prompt: str, user_message: str, config: dict) -> str:
     return result["candidates"][0]["content"]["parts"][0]["text"]
 
 
+def call_anthropic(system_prompt: str, user_message: str, config: dict) -> str:
+    """Call Anthropic Claude API."""
+    api_key = os.getenv(config["env_key"])
+
+    response = requests.post(
+        config["api_url"],
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": config["model"],
+            "max_tokens": MAX_OUTPUT_TOKENS,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_message}],
+        },
+        timeout=REQUEST_TIMEOUT,
+    )
+
+    if response.status_code != 200:
+        raise Exception(f"Anthropic API Error {response.status_code}: {parse_api_error(response, 'anthropic')}")
+
+    result = response.json()
+    if "content" not in result or not result["content"]:
+        raise Exception(f"Unexpected Anthropic response: {result}")
+
+    if result.get("stop_reason") == "max_tokens":
+        print("⚠️  Warning: Response was truncated.")
+
+    return result["content"][0]["text"]
+
+
 def call_zai(system_prompt: str, user_message: str, config: dict) -> str:
     """Call Z.AI GLM-4.6 API with streaming."""
     api_key = os.getenv(config["env_key"])
@@ -458,6 +491,8 @@ def get_provider_function(provider: str) -> Callable[[str, str], str]:
 
     if api_type == "gemini":
         return lambda system, user: call_gemini(system, user, config)
+    elif api_type == "anthropic":
+        return lambda system, user: call_anthropic(system, user, config)
     elif api_type == "zai":
         return lambda system, user: call_zai(system, user, config)
     else:  # Default to OpenAI-compatible

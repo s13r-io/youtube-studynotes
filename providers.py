@@ -105,6 +105,17 @@ PROVIDERS = {
     # ============================================================
     # SPECIALIZED PROVIDERS (require custom handling in app.py)
     # ============================================================
+    "anthropic": {
+        "name": "Anthropic Claude Sonnet 4.6",
+        "model": "claude-sonnet-4-6",
+        "nickname": "claudeSonnet4.6",
+        "env_key": "ANTHROPIC_API_KEY",
+        "context": "200K tokens",
+        "context_tokens": 200_000,
+        "free": False,
+        "api_type": "anthropic",
+        "api_url": "https://api.anthropic.com/v1/messages",
+    },
     "zai": {
         "name": "Z.AI GLM-4.7",
         "model": "glm-4.7",
